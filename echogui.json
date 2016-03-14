@@ -1,0 +1,29 @@
+{
+  "title": "echo",
+  "rootControl": 
+    {
+      "type": "sizer",
+      "orientation": "vertical",
+      "NOPEproportions": [0.1,0.2,0.7],
+      "controls": [
+             { "type": "label"
+             , "name": "lb1"
+             , "label": "feedback"
+             }
+            ,{ "type": "slider"
+             , "orientation": "horizontal"
+             , "name": "feedback"
+             }
+            ,{ "type": "label"
+             , "name": "lb2"
+             , "label": "millisecond"
+             }
+            ,{ "type": "slider"
+             , "orientation": "horizontal"
+             , "name": "millisecond"
+             }
+            ]
+    }
+}
+
+
