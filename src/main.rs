@@ -11,9 +11,13 @@ use std::thread;
 use std::str::FromStr;
 use std::cmp::min;
 
-extern crate portaudio;
+extern crate alsa;
+use alsa::Direction;
+use alsa::ValueOr;
+use alsa::pcm::{PCM, HwParams, Format, Access};
 
-use portaudio as pa;
+// extern crate portaudio;
+// use portaudio as pa;
 
 extern crate tinyosc;
 use tinyosc as osc;
@@ -48,18 +52,16 @@ const SAMPLE_RATE: f64 = 44100.0;
 // const FRAMES_PER_BUFFER: u32 = 64;
 const FRAMES_PER_BUFFER: u32 = 2048;
 
+type Sample = f32;
+
 fn main() {
-    run().unwrap()
+  match run() { 
+    Err(e) => println!("error: {:?}", e),
+    _ => println!("its over!"),
+  }
 }
 
-
-fn run() -> Result<(), pa::Error> {
-
-
-    // ---------------------------------------------
-    // start the osc receiver thread
-    // ---------------------------------------------
-
+fn run() -> Result<(), Box<std::error::Error> > {
     // make a channel to receive updates from the osc.
     let (tx, rx) = mpsc::channel::<SliderEvt>();
 
@@ -95,16 +97,107 @@ fn run() -> Result<(), pa::Error> {
     // unsafe { fraust_compute(bufmax, flts.as_mut_ptr(), outflts.as_mut_ptr()); }
 
     // ---------------------------------------------
+    // init alsa 
+    // ---------------------------------------------
+
+    /*
+    let config = default_config();
+    let mut phases: Vec<Phase> = (*config.pitches).iter().map(|&p| phase(&config, p)).collect();
+    phases.sort();
+    let phases = phases;
+
+    let phase_min = phases[0];
+    let phase_max = phases[phases.len()-1];
+    let sample_rate = config.sample_rate;
+    let samples = phase_max * 2;
+
+    let mut backing_vector: Vec<Sample> = Vec::with_capacity(samples);
+    // Should probably use Vec::from_elem(samples, 0) but that is not in stable yet
+    unsafe { backing_vector.set_len(samples); }
+    let mut data = &mut backing_vector[..];
+    */
+    // input, output buffers.
+    let sample_count = 10000;
+    let sample_rate = 44100;
+    let mut input_vector: Vec<Sample> = Vec::with_capacity(sample_count);
+    // Should probably use Vec::from_elem(samples, 0) but that is not in stable yet
+    unsafe { input_vector.set_len(sample_count); }
+    let mut inputdata = &mut input_vector[..];
+
+    let mut output_vector: Vec<Sample> = Vec::with_capacity(sample_count);
+    // Should probably use Vec::from_elem(sample_count, 0) but that is not in stable yet
+    unsafe { output_vector.set_len(sample_count); }
+    let mut outputdata = &mut output_vector[..];
+ 
+    let default = CString::new("default").unwrap();
+    let pcm_in = PCM::open(&*default, Direction::Capture, false).unwrap();
+    {
+      let hwp = HwParams::any(&pcm_in).unwrap();
+      hwp.set_channels(1).unwrap();
+      hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
+      hwp.set_format(Format::float()).unwrap();
+      hwp.set_access(Access::RWInterleaved).unwrap();
+      pcm_in.hw_params(&hwp).unwrap();
+    }
+    let io_in = pcm_in.io_f32().unwrap();
+    pcm_in.prepare().unwrap();
+
+    let pcm_out = PCM::open(&*default, Direction::Playback, false).unwrap();
+    {
+      let hwp = HwParams::any(&pcm_out).unwrap();
+      hwp.set_channels(1).unwrap();
+      hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
+      hwp.set_format(Format::float()).unwrap();
+      hwp.set_access(Access::RWInterleaved).unwrap();
+      pcm_out.hw_params(&hwp).unwrap();
+    }
+    let io_out = pcm_out.io_f32().unwrap();
+    pcm_out.prepare().unwrap();
+        
+      try!(io_out.writei(inputdata));
+          
+    unsafe { fraust_compute(500, inflts.as_ptr(), outflts.as_mut_ptr()); }
+
+    // copy vals into output array.
+    let mut idx = 0;
+    for _ in 0..sample_count {
+        outputdata[idx] = outflts[idx];
+        idx += 1;
+    }
+
+    
+
+
+    loop {
+      // let samps = try!(io_in.readi(&mut inputdata));
+      // io_in.readi(&mut inputdata);
+      // let samps = assert_eq!(io_in.readi(&mut inputdata).unwrap(), sample_count);
+      // let phase = autocorrelate(phase_min, phase_max, &data);
+      // let closest_index = closest(phase, &phases);
+      // VT100 escape magic to clear the current line and reset the cursor
+      // print!("\x1B[2K\r");
+      // print!("phase:{:>4}, freq:{:>8.3}, pitch:{:>8.3}, note: {}, string: {}", phase, sample_rate as f64 / phase as f64, frequency(&config, phase as f64), pprint_pitch(frequency(&config, phase as f64).round() as isize), closest_index + 1);
+
+      // io_out.writei(inputdata);
+      try!(io_out.writei(outputdata));
+      // try!(io_out.writei(outputdata));
+      // std::io::stdout().flush().unwrap();
+    }
+}
+
+/*
+fn run() -> Result<(), pa::Error> {
+
+
+    // ---------------------------------------------
     // start the portaudio process!
     // ---------------------------------------------
 
     let pa = try!(pa::PortAudio::new());
 
-/*
-    let mut settings = try!(pa.default_output_stream_settings(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
+    // let mut settings = try!(pa.default_output_stream_settings(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
     // we won't output out of range samples so don't bother clipping them.
-    settings.flags = pa::stream_flags::CLIP_OFF;
-*/
+    // settings.flags = pa::stream_flags::CLIP_OFF;
 
     let id = pa::DeviceIndex(0);
     let inparams = pa::StreamParameters::<f32>::new(id, 2, true, 0.0);
@@ -169,16 +262,14 @@ fn run() -> Result<(), pa::Error> {
               ofidx += 1;
           }
 
-          /*
           // passthrough!
-          let mut idx = 0;
-          for i in 0..frames { 
-            out_buffer[idx] = in_buffer[idx];
-            idx = idx + 1;
-            out_buffer[idx] = in_buffer[idx];
-            idx = idx + 1;
-          }
-          */
+          // let mut idx = 0;
+          // for i in 0..frames { 
+          //  out_buffer[idx] = in_buffer[idx];
+          //  idx = idx + 1;
+          //  out_buffer[idx] = in_buffer[idx];
+          //  idx = idx + 1;
+          //}
 
 
 
@@ -191,18 +282,11 @@ fn run() -> Result<(), pa::Error> {
     try!(stream.start());
 
     let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
-    // spawn the osc receiver thread. 
+    // do osc receive right here... 
     match oscthread(oscrecvip, tx) {
       Ok(s) => println!("oscthread exited ok"),
       Err(e) => println!("oscthread error: {} ", e),
     };
-
-    /*
-    loop {
-      println!("Play for {} seconds.", NUM_SECONDS);
-      pa.sleep(NUM_SECONDS * 1_000);
-    }
-    */
 
     try!(stream.stop());
     try!(stream.close());
@@ -211,7 +295,7 @@ fn run() -> Result<(), pa::Error> {
 
     Ok(())
 }
-
+*/
 
 fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<String, Error> { 
   let socket = try!(UdpSocket::bind(oscrecvip));
@@ -274,49 +358,4 @@ fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<S
   // Ok(String::from("meh"))
 }
 
-const INTERLEAVED: bool = true;
-const LATENCY: pa::Time = 0.0; // Ignored by PortAudio::is_*_format_supported.
-const STANDARD_SAMPLE_RATES: [f64; 13] = [
-    8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0,
-    44100.0, 48000.0, 88200.0, 96000.0, 192000.0,
-];
-
-fn printPaDev(idx: pa::DeviceIndex, pado: &pa::PortAudio) -> Result<(), pa::Error> {
-  let info = try!(pado.device_info(idx));
-  println!("--------------------------------------- {:?}", idx);
-  println!("{:#?}", &info);
-
-  let in_channels = info.max_input_channels;
-  let input_params = 
-    pa::StreamParameters::<i16>::new(idx, in_channels, INTERLEAVED, LATENCY);
-  let out_channels = info.max_output_channels;
-  let output_params = 
-    pa::StreamParameters::<i16>::new(idx, out_channels, INTERLEAVED, LATENCY);
-
-  println!("Supported standard sample rates for half-duplex 16-bit {} channel input:", 
-    in_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_input_format_supported(input_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  println!("Supported standard sample rates for half-duplex 16-bit {} channel output:", 
-    out_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_output_format_supported(output_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  println!("Supported standard sample rates for full-duplex 16-bit {} channel input, {} channel output:",
-     in_channels, out_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_duplex_format_supported(input_params, output_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  Ok(())
-}
 
