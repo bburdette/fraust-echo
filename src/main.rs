@@ -8,6 +8,7 @@ use std::string::String;
 use std::fmt::format;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 use std::str::FromStr;
 use std::cmp::min;
 
@@ -117,7 +118,9 @@ fn run() -> Result<(), Box<std::error::Error> > {
     let mut data = &mut backing_vector[..];
     */
     // input, output buffers.
-    let sample_count = 10000;
+    // let sample_count = 10000;
+    let sample_count = 64;
+    let period_size = 64;
     let sample_rate = 44100;
     let mut input_vector: Vec<Sample> = Vec::with_capacity(sample_count);
     // Should probably use Vec::from_elem(samples, 0) but that is not in stable yet
@@ -130,10 +133,14 @@ fn run() -> Result<(), Box<std::error::Error> > {
     let mut outputdata = &mut output_vector[..];
  
     let default = CString::new("default").unwrap();
-    let pcm_in = PCM::open(&*default, Direction::Capture, false).unwrap();
+    let nonblock = false; 
+    let pcm_in = PCM::open(&*default, Direction::Capture, nonblock).unwrap();
     {
       let hwp = HwParams::any(&pcm_in).unwrap();
+      hwp.set_period_size(period_size, ValueOr::Nearest);
       hwp.set_channels(1).unwrap();
+      hwp.set_buffer_size_near(1024).unwrap();
+      hwp.set_period_size_near(128,ValueOr::Nearest).unwrap();
       hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
       hwp.set_format(Format::float()).unwrap();
       hwp.set_access(Access::RWInterleaved).unwrap();
@@ -142,10 +149,19 @@ fn run() -> Result<(), Box<std::error::Error> > {
     let io_in = pcm_in.io_f32().unwrap();
     pcm_in.prepare().unwrap();
 
-    let pcm_out = PCM::open(&*default, Direction::Playback, false).unwrap();
+    match pcm_in.hw_params_current() {
+      Ok(params) => println!("hwparams: {:?}", params),
+      _ => println!("failed to get params"),
+    }
+
+    let pcm_out = PCM::open(&*default, Direction::Playback, nonblock).unwrap();
     {
       let hwp = HwParams::any(&pcm_out).unwrap();
+      hwp.set_period_size(period_size, ValueOr::Nearest);
+      println!("hwparams period size: {:?} ", hwp.get_period_size());
       hwp.set_channels(1).unwrap();
+      hwp.set_buffer_size_near(1024).unwrap();
+      hwp.set_period_size_near(64,ValueOr::Nearest).unwrap();
       hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
       hwp.set_format(Format::float()).unwrap();
       hwp.set_access(Access::RWInterleaved).unwrap();
@@ -153,11 +169,25 @@ fn run() -> Result<(), Box<std::error::Error> > {
     }
     let io_out = pcm_out.io_f32().unwrap();
     pcm_out.prepare().unwrap();
-        
-      try!(io_out.writei(inputdata));
-          
-    unsafe { fraust_compute(500, inflts.as_ptr(), outflts.as_mut_ptr()); }
 
+    match pcm_out.hw_params_current() {
+      Ok(params) => println!("hwparams: {:?}", params),
+      _ => println!("failed to get params"),
+    }
+         
+    // try!(io_out.writei(inputdata));
+    // try!(io_out.writei(inputdata));
+          
+    let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
+    // spawn the osc receiver thread. 
+    thread::spawn(move || {
+      match oscthread(oscrecvip, tx) {
+        Ok(s) => println!("oscthread exited ok"),
+        Err(e) => println!("oscthread error: {} ", e),
+      }
+    });
+
+ 
     // copy vals into output array.
     let mut idx = 0;
     for _ in 0..sample_count {
@@ -165,12 +195,67 @@ fn run() -> Result<(), Box<std::error::Error> > {
         idx += 1;
     }
 
-    
+    /*
+    let mut val = 1;
+    let period = 10;
+    for _ in 0..sample_count {
+      if (val > period)
+      {
+        val = 0;
+      }
 
+      if (val < 5)
+      {
+        outputdata[idx] = -1.0;
+      }
+      else
+      {
+        outputdata[idx] = 1.0;
+      }
+      idx += 1;
+      val += 1;
+    }
+    */
+
+    
+     // try!(io_out.writei(inputdata));
+     // try!(io_out.writei(inputdata));
+
+    println!("instate: {:?}", pcm_in.state());
+    println!("outstate: {:?}", pcm_out.state());
+
+      // try!(io_out.writei(inputdata));
+      // try!(io_out.writei(inputdata));
+
+    let frames = 64;
 
     loop {
       // let samps = try!(io_in.readi(&mut inputdata));
-      // io_in.readi(&mut inputdata);
+      try!(io_in.readi(&mut inputdata));
+
+      unsafe { fraust_compute(frames as i32, inputdata.as_ptr(), outputdata.as_mut_ptr()); }
+
+
+      try!(io_out.writei(outputdata));
+      
+      match rx.try_recv() { 
+        Ok(se) => {
+          match se.what { 
+            SeWhat::Millisecond => { 
+                // println!("setting vol to 0.3!");
+                unsafe { fraust_setval(millisecond.as_ptr(), se.position); }
+              }
+            SeWhat::Feedback => { 
+                // println!("setting vol to 0.001!");
+                unsafe { fraust_setval(feedback.as_ptr(), se.position); }
+              }
+          }
+        }
+        _ => {}
+      }
+
+      // println!("{} {} {} {} {}", inputdata[0], inputdata[1], inputdata[2], inputdata[3], inputdata[4]);
+      
       // let samps = assert_eq!(io_in.readi(&mut inputdata).unwrap(), sample_count);
       // let phase = autocorrelate(phase_min, phase_max, &data);
       // let closest_index = closest(phase, &phases);
@@ -179,7 +264,7 @@ fn run() -> Result<(), Box<std::error::Error> > {
       // print!("phase:{:>4}, freq:{:>8.3}, pitch:{:>8.3}, note: {}, string: {}", phase, sample_rate as f64 / phase as f64, frequency(&config, phase as f64), pprint_pitch(frequency(&config, phase as f64).round() as isize), closest_index + 1);
 
       // io_out.writei(inputdata);
-      try!(io_out.writei(outputdata));
+      // try!(io_out.writei(outputdata));
       // try!(io_out.writei(outputdata));
       // std::io::stdout().flush().unwrap();
     }

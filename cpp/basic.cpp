@@ -331,9 +331,9 @@ class dsp {
 //  FAUST generated signal processor
 //----------------------------------------------------------------------------
 		
-#include "noise.cpp"
+// #include "noise.cpp"
 // #include "phaser_flanger.cpp"
-// #include "echo.cpp"
+#include "echo.cpp"
 
 /* The class factory, used to create and destroy mydsp objects in the
    client. Implemented using C linkage to facilitate dlopen access. */
