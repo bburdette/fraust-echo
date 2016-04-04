@@ -120,28 +120,22 @@ fn run() -> Result<(), Box<std::error::Error> > {
     // input, output buffers.
     // let sample_count = 10000;
     let sample_count = 64;
-    let period_size = 64;
+    let period_size_try = 2048;
+    let buffer_size_try = 2048;
     let sample_rate = 44100;
-    let mut input_vector: Vec<Sample> = Vec::with_capacity(sample_count);
-    // Should probably use Vec::from_elem(samples, 0) but that is not in stable yet
-    unsafe { input_vector.set_len(sample_count); }
-    let mut inputdata = &mut input_vector[..];
+    // let sample_rate = 48000;
 
-    let mut output_vector: Vec<Sample> = Vec::with_capacity(sample_count);
-    // Should probably use Vec::from_elem(sample_count, 0) but that is not in stable yet
-    unsafe { output_vector.set_len(sample_count); }
-    let mut outputdata = &mut output_vector[..];
- 
     let default = CString::new("default").unwrap();
     let nonblock = false; 
+
     let pcm_in = PCM::open(&*default, Direction::Capture, nonblock).unwrap();
     {
       let hwp = HwParams::any(&pcm_in).unwrap();
-      hwp.set_period_size(period_size, ValueOr::Nearest);
-      hwp.set_channels(1).unwrap();
-      hwp.set_buffer_size_near(1024).unwrap();
-      hwp.set_period_size_near(128,ValueOr::Nearest).unwrap();
       hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
+      // hwp.set_period_size(period_size, ValueOr::Nearest);
+      hwp.set_channels(1).unwrap();
+      hwp.set_buffer_size_near(buffer_size_try).unwrap();
+      hwp.set_period_size_near(period_size_try,ValueOr::Nearest).unwrap();
       hwp.set_format(Format::float()).unwrap();
       hwp.set_access(Access::RWInterleaved).unwrap();
       pcm_in.hw_params(&hwp).unwrap();
@@ -157,12 +151,10 @@ fn run() -> Result<(), Box<std::error::Error> > {
     let pcm_out = PCM::open(&*default, Direction::Playback, nonblock).unwrap();
     {
       let hwp = HwParams::any(&pcm_out).unwrap();
-      hwp.set_period_size(period_size, ValueOr::Nearest);
-      println!("hwparams period size: {:?} ", hwp.get_period_size());
-      hwp.set_channels(1).unwrap();
-      hwp.set_buffer_size_near(1024).unwrap();
-      hwp.set_period_size_near(64,ValueOr::Nearest).unwrap();
       hwp.set_rate(sample_rate, ValueOr::Nearest).unwrap();
+      hwp.set_channels(1).unwrap();
+      hwp.set_buffer_size_near(buffer_size_try).unwrap();
+      hwp.set_period_size_near(period_size_try,ValueOr::Nearest).unwrap();
       hwp.set_format(Format::float()).unwrap();
       hwp.set_access(Access::RWInterleaved).unwrap();
       pcm_out.hw_params(&hwp).unwrap();
@@ -175,9 +167,27 @@ fn run() -> Result<(), Box<std::error::Error> > {
       _ => println!("failed to get params"),
     }
          
-    // try!(io_out.writei(inputdata));
-    // try!(io_out.writei(inputdata));
-          
+    let period_size = 
+	match pcm_out.hw_params_current() {
+	      Ok(params) => { match params.get_period_size() {
+		Ok(ps) => ps, //  as i32, 
+		_ => period_size_try as i32,
+	 	}}
+	      _ => period_size_try as i32, 
+	    };
+    
+    let vecsize = period_size as usize;
+      
+    let mut input_vector: Vec<Sample> = Vec::with_capacity(vecsize);
+    // Should probably use Vec::from_elem(samples, 0) but that is not in stable yet
+    unsafe { input_vector.set_len(vecsize); }
+    let mut inputdata = &mut input_vector[..];
+
+    let mut output_vector: Vec<Sample> = Vec::with_capacity(vecsize);
+    // Should probably use Vec::from_elem(period_size, 0) but that is not in stable yet
+    unsafe { output_vector.set_len(vecsize); }
+    let mut outputdata = &mut output_vector[..];
+
     let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
     // spawn the osc receiver thread. 
     thread::spawn(move || {
@@ -224,17 +234,17 @@ fn run() -> Result<(), Box<std::error::Error> > {
     println!("instate: {:?}", pcm_in.state());
     println!("outstate: {:?}", pcm_out.state());
 
-      // try!(io_out.writei(inputdata));
-      // try!(io_out.writei(inputdata));
+    // try!(io_out.writei(inputdata));
+    try!(io_out.writei(inputdata));
 
-    let frames = 64;
+    // let frames = 64;
+    let frames = period_size;
 
     loop {
       // let samps = try!(io_in.readi(&mut inputdata));
       try!(io_in.readi(&mut inputdata));
 
       unsafe { fraust_compute(frames as i32, inputdata.as_ptr(), outputdata.as_mut_ptr()); }
-
 
       try!(io_out.writei(outputdata));
       
@@ -269,118 +279,6 @@ fn run() -> Result<(), Box<std::error::Error> > {
       // std::io::stdout().flush().unwrap();
     }
 }
-
-/*
-fn run() -> Result<(), pa::Error> {
-
-
-    // ---------------------------------------------
-    // start the portaudio process!
-    // ---------------------------------------------
-
-    let pa = try!(pa::PortAudio::new());
-
-    // let mut settings = try!(pa.default_output_stream_settings(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
-    // we won't output out of range samples so don't bother clipping them.
-    // settings.flags = pa::stream_flags::CLIP_OFF;
-
-    let id = pa::DeviceIndex(0);
-    let inparams = pa::StreamParameters::<f32>::new(id, 2, true, 0.0);
-    let outparams = pa::StreamParameters::<f32>::new(id, 2, true, 0.0);
-    let mut settings = 
-      pa::DuplexStreamSettings::new(inparams, outparams, SAMPLE_RATE, FRAMES_PER_BUFFER);
-    settings.flags = pa::stream_flags::CLIP_OFF;
-
-    printPaDev(id, &pa);
-
-
-    // This routine will be called by the PortAudio engine when audio is needed. It may called at
-    // interrupt level on some machines so don't do anything that could mess up the system like
-    // dynamic resource allocation or IO.
-    let callback = move |pa::DuplexStreamCallbackArgs { in_buffer, out_buffer, frames, .. }| {
-        // println!("in the callback! frames: {}", frames);
-        // any events to update the DSP with?? 
-        match rx.try_recv() { 
-          Ok(se) => {
-            match se.what { 
-              SeWhat::Millisecond => { 
-                  // println!("setting vol to 0.3!");
-                   unsafe { fraust_setval(millisecond.as_ptr(), se.position); }
-                }
-              SeWhat::Feedback => { 
-                  // println!("setting vol to 0.001!");
-                  unsafe { fraust_setval(feedback.as_ptr(), se.position); }
-                }
-            }
-          }
-          _ => {}
-        }
-
-        if frames * 2 > bufmax
-        {
-          pa::Abort
-        }
-        else
-        {
-          // do dsp!
-          let mut idx = 0;
-          let mut ifidx = 0;
-
-          // just get one input channel.
-          for _ in 0..frames {
-              inflts[idx] = in_buffer[ifidx];
-              idx += 1;
-              ifidx += 2;
-          }
-           // compute 'frames' number of samples.
-          // unsafe { fraust_compute(frames as i32, in_buffer.as_ptr(), out_buffer.as_mut_ptr()); }
-          unsafe { fraust_compute(frames as i32, inflts.as_ptr(), outflts.as_mut_ptr()); }
-          
-          idx = 0;
-          let mut ofidx = 0;
-          // stereo output.
-          for _ in 0..frames {
-              out_buffer[idx] = outflts[ofidx];
-              idx += 1;
-              out_buffer[idx] = outflts[ofidx];
-              idx += 1;
-              ofidx += 1;
-          }
-
-          // passthrough!
-          // let mut idx = 0;
-          // for i in 0..frames { 
-          //  out_buffer[idx] = in_buffer[idx];
-          //  idx = idx + 1;
-          //  out_buffer[idx] = in_buffer[idx];
-          //  idx = idx + 1;
-          //}
-
-
-
-          pa::Continue
-        }
-    };
-
-    let mut stream = try!(pa.open_non_blocking_stream(settings, callback));
-
-    try!(stream.start());
-
-    let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
-    // do osc receive right here... 
-    match oscthread(oscrecvip, tx) {
-      Ok(s) => println!("oscthread exited ok"),
-      Err(e) => println!("oscthread error: {} ", e),
-    };
-
-    try!(stream.stop());
-    try!(stream.close());
-
-    println!("its over!");
-
-    Ok(())
-}
-*/
 
 fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<String, Error> { 
   let socket = try!(UdpSocket::bind(oscrecvip));
