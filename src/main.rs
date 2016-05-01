@@ -13,7 +13,8 @@ use std::cmp::min;
 
 extern crate portaudio;
 
-use portaudio as pa;
+// use portaudio as pa;
+use portaudio::{stream, hostapi, device};
 
 extern crate tinyosc;
 use tinyosc as osc;
@@ -48,14 +49,29 @@ const SAMPLE_RATE: f64 = 44100.0;
 // const FRAMES_PER_BUFFER: u32 = 64;
 const FRAMES_PER_BUFFER: u32 = 2048;
 
-fn main() {
-    run().unwrap()
+fn main()
+{
+    portaudio::initialize().unwrap();
+    print_devs();
+    // println!("{:?}", demo());
+    callback_demo();
+    portaudio::terminate().unwrap();
 }
 
+fn print_devs()
+{
+    for i in 0 .. portaudio::device::get_count().unwrap()
+    {
+        match portaudio::device::get_info(i)
+        {
+            None => {},
+            Some(info) => println!("{}: {}", i, info.name),
+        }
+    }
+}
 
-fn run() -> Result<(), pa::Error> {
-
-
+fn callback_demo()
+{
     // ---------------------------------------------
     // start the osc receiver thread
     // ---------------------------------------------
@@ -91,35 +107,11 @@ fn run() -> Result<(), pa::Error> {
     let bufmaxu = bufmax as usize;
     let mut bufidx = bufmaxu - 1;
 
-    // make a full buffer to begin with.
-    // unsafe { fraust_compute(bufmax, flts.as_mut_ptr(), outflts.as_mut_ptr()); }
-
     // ---------------------------------------------
-    // start the portaudio process!
+    // set up portaudio callback ftn.
     // ---------------------------------------------
-
-    let pa = try!(pa::PortAudio::new());
-
-/*
-    let mut settings = try!(pa.default_output_stream_settings(CHANNELS, SAMPLE_RATE, FRAMES_PER_BUFFER));
-    // we won't output out of range samples so don't bother clipping them.
-    settings.flags = pa::stream_flags::CLIP_OFF;
-*/
-
-    let id = pa::DeviceIndex(0);
-    let inparams = pa::StreamParameters::<f32>::new(id, 2, true, 0.0);
-    let outparams = pa::StreamParameters::<f32>::new(id, 2, true, 0.0);
-    let mut settings = 
-      pa::DuplexStreamSettings::new(inparams, outparams, SAMPLE_RATE, FRAMES_PER_BUFFER);
-    settings.flags = pa::stream_flags::CLIP_OFF;
-
-    printPaDev(id, &pa);
-
-
-    // This routine will be called by the PortAudio engine when audio is needed. It may called at
-    // interrupt level on some machines so don't do anything that could mess up the system like
-    // dynamic resource allocation or IO.
-    let callback = move |pa::DuplexStreamCallbackArgs { in_buffer, out_buffer, frames, .. }| {
+    let callback = Box::new(|input: &[f32], output: &mut [f32], _time: stream::StreamTimeInfo, _flags: stream::StreamCallbackFlags| -> stream::StreamCallbackResult
+    {
         // println!("in the callback! frames: {}", frames);
         // any events to update the DSP with?? 
         match rx.try_recv() { 
@@ -138,57 +130,38 @@ fn run() -> Result<(), pa::Error> {
           _ => {}
         }
 
-        if frames * 2 > bufmax
-        {
-          pa::Abort
-        }
-        else
-        {
-          // do dsp!
-          let mut idx = 0;
-          let mut ifidx = 0;
+        // do dsp!
 
-          // just get one input channel.
-          for _ in 0..frames {
-              inflts[idx] = in_buffer[ifidx];
-              idx += 1;
-              ifidx += 2;
-          }
-           // compute 'frames' number of samples.
-          // unsafe { fraust_compute(frames as i32, in_buffer.as_ptr(), out_buffer.as_mut_ptr()); }
-          unsafe { fraust_compute(frames as i32, inflts.as_ptr(), outflts.as_mut_ptr()); }
-          
-          idx = 0;
-          let mut ofidx = 0;
-          // stereo output.
-          for _ in 0..frames {
-              out_buffer[idx] = outflts[ofidx];
-              idx += 1;
-              out_buffer[idx] = outflts[ofidx];
-              idx += 1;
-              ofidx += 1;
-          }
+        // TO DO: verify input buflen too, in case it has fewer or no channels, thats a segfault.
 
-          /*
-          // passthrough!
-          let mut idx = 0;
-          for i in 0..frames { 
-            out_buffer[idx] = in_buffer[idx];
-            idx = idx + 1;
-            out_buffer[idx] = in_buffer[idx];
-            idx = idx + 1;
-          }
-          */
+        unsafe { fraust_compute(output.len() as i32, input.as_ptr(), output.as_mut_ptr()); }
 
+        stream::StreamCallbackResult::Continue
+    });
 
-
-          pa::Continue
-        }
+    // ---------------------------------------------
+    // start portaudio 
+    // ---------------------------------------------
+    let finished_callback = Box::new(|| println!("Finshed callback called"));
+    let mut stream = match stream::Stream::open_default(2, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
+    {
+        Err(v) => { println!("Err({:?})", v); return },
+        Ok(stream) => stream,
     };
 
-    let mut stream = try!(pa.open_non_blocking_stream(settings, callback));
 
-    try!(stream.start());
+    println!("finished_callback: {:?}", stream.set_finished_callback(finished_callback));
+    println!("start: {:?}", stream.start());
+
+    /*
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    println!("stop: {:?}", stream.stop());
+
+    println!("finished_callback: {:?}", stream.unset_finished_callback());
+    println!("start: {:?}", stream.start());
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    println!("stop: {:?}", stream.stop());
+    */
 
     let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
     // spawn the osc receiver thread. 
@@ -196,22 +169,7 @@ fn run() -> Result<(), pa::Error> {
       Ok(s) => println!("oscthread exited ok"),
       Err(e) => println!("oscthread error: {} ", e),
     };
-
-    /*
-    loop {
-      println!("Play for {} seconds.", NUM_SECONDS);
-      pa.sleep(NUM_SECONDS * 1_000);
-    }
-    */
-
-    try!(stream.stop());
-    try!(stream.close());
-
-    println!("its over!");
-
-    Ok(())
 }
-
 
 fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<String, Error> { 
   let socket = try!(UdpSocket::bind(oscrecvip));
@@ -274,49 +232,4 @@ fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<S
   // Ok(String::from("meh"))
 }
 
-const INTERLEAVED: bool = true;
-const LATENCY: pa::Time = 0.0; // Ignored by PortAudio::is_*_format_supported.
-const STANDARD_SAMPLE_RATES: [f64; 13] = [
-    8000.0, 9600.0, 11025.0, 12000.0, 16000.0, 22050.0, 24000.0, 32000.0,
-    44100.0, 48000.0, 88200.0, 96000.0, 192000.0,
-];
-
-fn printPaDev(idx: pa::DeviceIndex, pado: &pa::PortAudio) -> Result<(), pa::Error> {
-  let info = try!(pado.device_info(idx));
-  println!("--------------------------------------- {:?}", idx);
-  println!("{:#?}", &info);
-
-  let in_channels = info.max_input_channels;
-  let input_params = 
-    pa::StreamParameters::<i16>::new(idx, in_channels, INTERLEAVED, LATENCY);
-  let out_channels = info.max_output_channels;
-  let output_params = 
-    pa::StreamParameters::<i16>::new(idx, out_channels, INTERLEAVED, LATENCY);
-
-  println!("Supported standard sample rates for half-duplex 16-bit {} channel input:", 
-    in_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_input_format_supported(input_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  println!("Supported standard sample rates for half-duplex 16-bit {} channel output:", 
-    out_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_output_format_supported(output_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  println!("Supported standard sample rates for full-duplex 16-bit {} channel input, {} channel output:",
-     in_channels, out_channels);
-  for &sample_rate in &STANDARD_SAMPLE_RATES {
-    if pado.is_duplex_format_supported(input_params, output_params, sample_rate).is_ok() {
-        println!("\t{}hz", sample_rate);
-    }
-  }
-
-  Ok(())
-}
 

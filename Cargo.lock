@@ -4,7 +4,7 @@ version = "0.1.0"
 dependencies = [
  "gcc 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "portaudio 0.6.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "portaudio 0.2.0 (git+https://github.com/mvdnes/portaudio-rs)",
  "tinyosc 0.0.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -42,23 +42,26 @@ version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "num"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "pkg-config"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "portaudio"
-version = "0.6.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+version = "0.2.0"
+source = "git+https://github.com/mvdnes/portaudio-rs#0b228f54a16814c52ba1ef449ac439af59f8cab0"
 dependencies = [
  "bitflags 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
- "num 0.1.31 (registry+https://github.com/rust-lang/crates.io-index)",
+ "portaudio_sys 0.1.1 (git+https://github.com/mvdnes/portaudio-rs)",
+]
+
+[[package]]
+name = "portaudio_sys"
+version = "0.1.1"
+source = "git+https://github.com/mvdnes/portaudio-rs#0b228f54a16814c52ba1ef449ac439af59f8cab0"
+dependencies = [
+ "libc 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "pkg-config 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
