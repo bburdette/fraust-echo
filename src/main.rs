@@ -142,8 +142,9 @@ fn callback_demo()
     // ---------------------------------------------
     // start portaudio 
     // ---------------------------------------------
-    let in_idx = 0;
-    /*let in_idx = match device::get_default_input_index()
+    let in_idx = 2;
+	/*
+    let in_idx = match device::get_default_input_index()
     {
         Some(o) => o,
         None => return,
@@ -153,14 +154,14 @@ fn callback_demo()
         None => return,
         Some(d) => d.default_low_input_latency,
     };
-    let inparams = stream::StreamParameters { device: in_idx, channel_count: 2, suggested_latency: in_lat, data: 0f32 };
+    let inparams = stream::StreamParameters { device: in_idx, channel_count: 1, suggested_latency: in_lat, data: 0f32 };
 
-    let out_idx = 0;
-    /*let out_idx = match device::get_default_output_index()
+    let out_idx = 2;
+    /* let out_idx = match device::get_default_output_index()
     {
         Some(o) => o,
         None => return,
-    };*/
+    }; */
     let out_lat = match device::get_info(out_idx)
     {
         None => return,
@@ -168,9 +169,7 @@ fn callback_demo()
     };
     let outparams = stream::StreamParameters { device: out_idx, channel_count: 2, suggested_latency: out_lat, data: 0f32 };
 
-    let finished_callback = Box::new(|| println!("Finshed callback called"));
 
-    // let mut stream = match stream::Stream::open_default(2, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
     let mut stream = match stream::Stream::open(Some(inparams), 
                                                 Some(outparams), 
                                                 44100f64, 
@@ -182,7 +181,15 @@ fn callback_demo()
         Ok(stream) => stream,
     };
 
+   /*
+    let mut stream = match stream::Stream::open_default(1, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
+    {
+        Err(v) => { println!("Err({:?})", v); return },
+        Ok(stream) => stream,
+    };
+	*/
 
+    let finished_callback = Box::new(|| println!("Finshed callback called"));
     println!("finished_callback: {:?}", stream.set_finished_callback(finished_callback));
     println!("start: {:?}", stream.start());
 
