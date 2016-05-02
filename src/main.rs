@@ -142,8 +142,41 @@ fn callback_demo()
     // ---------------------------------------------
     // start portaudio 
     // ---------------------------------------------
+    let in_idx = 0;
+    /*let in_idx = match device::get_default_input_index()
+    {
+        Some(o) => o,
+        None => return,
+    };*/
+    let in_lat = match device::get_info(in_idx)
+    {
+        None => return,
+        Some(d) => d.default_low_input_latency,
+    };
+    let inparams = stream::StreamParameters { device: in_idx, channel_count: 2, suggested_latency: in_lat, data: 0f32 };
+
+    let out_idx = 0;
+    /*let out_idx = match device::get_default_output_index()
+    {
+        Some(o) => o,
+        None => return,
+    };*/
+    let out_lat = match device::get_info(out_idx)
+    {
+        None => return,
+        Some(d) => d.default_low_output_latency,
+    };
+    let outparams = stream::StreamParameters { device: out_idx, channel_count: 2, suggested_latency: out_lat, data: 0f32 };
+
     let finished_callback = Box::new(|| println!("Finshed callback called"));
-    let mut stream = match stream::Stream::open_default(2, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
+
+    // let mut stream = match stream::Stream::open_default(2, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
+    let mut stream = match stream::Stream::open(Some(inparams), 
+                                                Some(outparams), 
+                                                44100f64, 
+                                                stream::FRAMES_PER_BUFFER_UNSPECIFIED, 
+                                                stream::StreamFlags::empty(), 
+                                                Some(callback))
     {
         Err(v) => { println!("Err({:?})", v); return },
         Ok(stream) => stream,
