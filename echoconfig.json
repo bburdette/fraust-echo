@@ -1,7 +1,9 @@
 {
   "guifile": "echogui.json",
-  "ip": "0.0.0.0:3030",
-  "wip": "0.0.0.0:1234",
+  "ip": "0.0.0.0",
+  "http-port": "3030",
+  "wip": "0.0.0.0",
+  "websockets-port": "1234",
   "oscrecvip": "127.0.0.1:9555",
   "oscsendip": "127.0.0.1:8000"
 }
