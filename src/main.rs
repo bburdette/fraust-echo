@@ -58,7 +58,6 @@ fn main()
 {
     portaudio::initialize().unwrap();
     print_devs();
-    // println!("{:?}", demo());
     callback_demo();
     portaudio::terminate().unwrap();
 }
@@ -70,7 +69,6 @@ fn print_devs()
         match portaudio::device::get_info(i)
         {
             None => {},
-            // Some(info) => println!("{}: {:?}", i, info),
             Some(info) => { 
               println!("-------------------------------------------");
               println!("Device {}: ", i);
@@ -210,27 +208,9 @@ fn callback_demo()
         Ok(stream) => stream,
     };
 
-   /*
-    let mut stream = match stream::Stream::open_default(1, 2, 44100f64, stream::FRAMES_PER_BUFFER_UNSPECIFIED, Some(callback))
-    {
-        Err(v) => { println!("Err({:?})", v); return },
-        Ok(stream) => stream,
-    };
-	*/
-
     let finished_callback = Box::new(|| println!("Finshed callback called"));
     println!("finished_callback: {:?}", stream.set_finished_callback(finished_callback));
     println!("start: {:?}", stream.start());
-
-    /*
-    std::thread::sleep(std::time::Duration::from_secs(1));
-    println!("stop: {:?}", stream.stop());
-
-    println!("finished_callback: {:?}", stream.unset_finished_callback());
-    println!("start: {:?}", stream.start());
-    std::thread::sleep(std::time::Duration::from_secs(1));
-    println!("stop: {:?}", stream.stop());
-    */
 
     let oscrecvip = std::net::SocketAddr::from_str("0.0.0.0:8000").expect("Invalid IP");
     // spawn the osc receiver thread. 
@@ -278,12 +258,10 @@ fn find_etype(args: &Vec<osc::Argument>) -> Option<SeType> {
         match etype { 
         "pressed" => Some(SeType::SliderPress),
         "unpressed" => Some(SeType::SliderUnpress),
-        // "moved" => Some(SeType::SliderMove),
         _ => Some(SeType::SliderMove),
         }
 	}
       _ => Some(SeType::SliderMove),
-      // _ => None,
      }
    }
    else { None }
@@ -296,7 +274,6 @@ fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<S
   loop { 
     let (amt, src) = try!(socket.recv_from(&mut buf));
 
-    // println!("length: {}", amt);
     let inmsg = match osc::Message::deserialize(&buf[.. amt]) {
       Ok(m) => m,
       Err(e) => {
@@ -313,8 +290,6 @@ fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<S
           _ => None,
           };
 
-        println!(" what and stuff: {:?}, {:?},  {:?}",  
-		what.is_none(), find_etype(args).is_none(), find_location(args).is_none());
         match (what, find_etype(args), find_location(args)) { 
           (Some(what), Some(sevt), Some(pos)) => { 
             let amt = match what { 
@@ -332,51 +307,6 @@ fn oscthread(oscrecvip: SocketAddr, sender: mpsc::Sender<SliderEvt>) -> Result<S
    }
  }
 
-/*         match (find_location(args)) {
-          Some(loc) => 
 
-        if args.len() > 1 {
-          match (&args[0], &args[1]) {
-            (&osc::Argument::s(etype), &osc::Argument::f(pos)) => {
-            let what = match path { 
-              &"millisecond" => Some(SeWhat::Millisecond),
-              &"feedback" => Some(SeWhat::Feedback),
-              _ => None,
-              };
-
-            let setype = match etype { 
-              "s_pressed" => Some(SeType::SliderPress),
-              "s_unpressed" => Some(SeType::SliderUnpress),
-              "s_moved" => Some(SeType::SliderMove),
-              _ => None,
-              };
-
-            match (what, setype) { 
-              (Some(what), Some(sevt)) => { 
-                let amt = match what { 
-                  SeWhat::Millisecond => pos * 500.0,
-                  SeWhat::Feedback => pos * 100.0,
-                  };
-                
-                let se = SliderEvt{ evttype: sevt, what: what, position: amt };
-                sender.send(se)
-              }
-              _ => Ok(())
-            }
-            },
-            _ => Ok(())
-          } 
-        }
-        else {
-          Ok(())
-        }
-      },
-      };
-    };
-
-  // drop(socket); // close the socket
-  // Ok(String::from("meh"))
-}
-*/
 
 
