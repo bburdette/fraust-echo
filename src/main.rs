@@ -17,6 +17,9 @@ extern crate portaudio;
 // use portaudio as pa;
 use portaudio::{stream, hostapi, device};
 
+extern crate clap;
+use clap::{Arg, App, SubCommand};
+
 extern crate tinyosc;
 use tinyosc as osc;
 
@@ -26,15 +29,12 @@ const SAMPLE_RATE: f64 = 44100.0;
 // const FRAMES_PER_BUFFER: u32 = 64;
 // const FRAMES_PER_BUFFER: u32 = 2048;
 const FRAMES_PER_BUFFER: u32 = 4096;
-const IN_DEVICE: u32 = 0;
-const OUT_DEVICE: u32 = 0;
 
 extern {
   pub fn fraust_init(samplerate: i32);
   pub fn fraust_compute(count: i32, input: *const libc::c_float, output: *mut libc::c_float );
   pub fn fraust_setval(label: *const libc::c_char , val: libc::c_float); 
 }
-
 
 enum SeType { 
   SliderPress,
@@ -56,9 +56,38 @@ pub struct SliderEvt {
 
 fn main()
 {
+    let matches = App::new("fraust-echo")
+                          .version("0.1")
+                          .author("Ben Burdette <bburdette@gmail.com>")
+                          .about("echo in rust using faust")
+                          .arg(Arg::with_name("input_device")
+                               .short("i")
+                               .long("input")
+                               .help("Sets the input device index.")
+                               .takes_value(true))
+                          .arg(Arg::with_name("output_device")
+                               .short("o")
+                               .long("output")
+                               .help("Sets the output device index.")
+                               .takes_value(true))
+                          .arg(Arg::with_name("list")
+                               .help("List audio devices"))
+                          .get_matches();
+
+    let input_device = matches.value_of("input_device");
+    let output_device = matches.value_of("output_device");
+    let list = matches.value_of("list");
+    
+    // println!("args are: {:?} {:?} {:?}", input_device, output_device, list);
+
     portaudio::initialize().unwrap();
-    print_devs();
-    callback_demo();
+    if list.is_some() { 
+      print_devs();
+    }
+    else {
+      callback_demo(input_device.map(|x: &str| u32::from_str(x).unwrap()), 
+		    output_device.map(|x: &str| u32::from_str(x).unwrap()));
+    }
     portaudio::terminate().unwrap();
 }
 
@@ -77,7 +106,27 @@ fn print_devs()
         }
     }
     println!("-------------------------------------------");
+
+    if let Some(i) = device::get_default_input_index() {
+      println!("default input device index: {}", i);
+    }
+    else {
+      println!("no default input device!");
+    }
+    if let Some(i) = device::get_default_output_index() {
+      println!("default output device index: {}", i);
+    }
+    else {
+      println!("no default output device!");
+    }
 }
+
+fn as_millis (d: Duration) -> u64 {
+  let s = u64::from(d.as_secs());
+  let n = u64::from(d.subsec_nanos());
+  (s * 1000) + (n / 1000000)
+}
+
 
 fn print_device(info: device::DeviceInfo)
 {
@@ -85,14 +134,14 @@ fn print_device(info: device::DeviceInfo)
   println!("host_api: {}", info.host_api);
   println!("max_input_channels: {}", info.max_input_channels);
   println!("max_output_channels: {}", info.max_output_channels);
-  println!("default_low_input_latency: {}", info.default_low_input_latency.num_milliseconds());
-  println!("default_low_output_latency: {}", info.default_low_output_latency.num_milliseconds());
-  println!("default_high_input_latency: {}", info.default_high_input_latency.num_milliseconds());
-  println!("default_high_output_latency: {}", info.default_high_output_latency.num_milliseconds());
+  println!("default_low_input_latency: {} ms", as_millis(info.default_low_input_latency));
+  println!("default_low_output_latency: {} ms", as_millis(info.default_low_output_latency));
+  println!("default_high_input_latency: {} ms", as_millis(info.default_high_input_latency));
+  println!("default_high_output_latency: {} ms", as_millis(info.default_high_output_latency));
   println!("default_sample_rate: {}", info.default_sample_rate);
 }
 
-fn callback_demo()
+fn callback_demo(input_device: Option<u32>, output_device: Option<u32>)
 {
     // ---------------------------------------------
     // start the osc receiver thread
@@ -164,13 +213,8 @@ fn callback_demo()
     // ---------------------------------------------
     // start portaudio 
     // ---------------------------------------------
-    let in_idx = IN_DEVICE;
-	/*
-    let in_idx = match device::get_default_input_index()
-    {
-        Some(o) => o,
-        None => return,
-    };*/
+    let in_idx = input_device.unwrap_or_else(|| 
+			device::get_default_input_index().expect("no default input device found."));
     let in_lat = match device::get_info(in_idx)
     {
         None => {
@@ -181,12 +225,8 @@ fn callback_demo()
     };
     let inparams = stream::StreamParameters { device: in_idx, channel_count: 1, suggested_latency: in_lat, data: 0f32 };
 
-    let out_idx = OUT_DEVICE;
-    /* let out_idx = match device::get_default_output_index()
-    {
-        Some(o) => o,
-        None => return,
-    }; */
+    let out_idx = output_device.unwrap_or_else(|| 
+			device::get_default_output_index().expect("no default output device found."));
     let out_lat = match device::get_info(out_idx)
     {
         None => {

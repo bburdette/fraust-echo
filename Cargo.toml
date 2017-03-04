@@ -6,7 +6,8 @@ build = "build.rs"
 
 [dependencies]
 libc = "0.2.0"
-tinyosc = "0.0.2"
+clap = "2.20.5"
+tinyosc = "0.0.3"
 portaudio       = { git = "https://github.com/mvdnes/portaudio-rs" }
 
 [build-dependencies]
