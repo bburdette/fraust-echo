@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::cmp::min;
 use std::time::Duration;
 
-extern crate portaudio;
+extern crate portaudio_rs as portaudio;
 
 // use portaudio as pa;
 use portaudio::{stream, hostapi, device};
